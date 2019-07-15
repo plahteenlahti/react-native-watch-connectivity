@@ -354,6 +354,11 @@ didReceiveUserInfo:(NSDictionary<NSString *,id> *)userInfo {
   return uuidString;
 }
 
+
++ (BOOL)requiresMainQueueSetup {
+  return YES;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 @end
