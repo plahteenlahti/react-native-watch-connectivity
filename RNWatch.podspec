@@ -16,7 +16,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '9.3'
 
   s.preserve_paths = '*'
-  s.source_files   = 'Library/**/*{h,m}'
+  s.source_files   = 'Libraries/**/*{h,m}'
   s.dependency 'React'
 
 end
