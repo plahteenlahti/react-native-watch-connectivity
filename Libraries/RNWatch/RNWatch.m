@@ -1,5 +1,22 @@
-#import "WatchBridge.h"
+#import "RNWatch.h"
+
+#if __has_include("RCTConvert.h")
 #import "RCTConvert.h"
+#elif __has_include(<React/RCTConvert.h>)
+#import <React/RCTConvert.h>
+#else
+#import "React/RCTConvert.h"
+#endif
+
+// import RCTEventDispatcher.h
+#if __has_include("RCTEventDispatcher.h")
+#import "RCTEventDispatcher.h"
+#elif __has_include(<React/RCTEventDispatcher.h>)
+#import <React/RCTEventDispatcher.h>
+#else
+#import "React/RCTEventDispatcher.h"
+#endif
+
 #import "RCTEventDispatcher.h"
 
 static const NSString* EVENT_FILE_TRANSFER_ERROR            = @"WatchFileTransferError";
@@ -12,37 +29,48 @@ static const NSString* EVENT_WATCH_REACHABILITY_CHANGED     = @"WatchReachabilit
 static const NSString* EVENT_WATCH_USER_INFO_RECEIVED       = @"WatchUserInfoReceived";
 static const NSString* EVENT_APPLICATION_CONTEXT_RECEIVED   = @"WatchApplicationContextReceived";
 
-@implementation WatchBridge
+static RNWatch* sharedInstance;
+
+@implementation RNWatch
+
 
 RCT_EXPORT_MODULE()
-
-@synthesize bridge = _bridge;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Init
 ////////////////////////////////////////////////////////////////////////////////
 
-+ (WatchBridge*) shared {
-  static WatchBridge *sharedMyManager = nil;
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    sharedMyManager = [[self alloc] init];
-  });
-  return sharedMyManager;
++ (BOOL) requiresMainQueueSetup {
+  return YES;
 }
 
-- (instancetype)init {
-  self = [super init];
++ (RNWatch*) sharedInstance {
+  return sharedInstance;
+}
+
+- (instancetype) init {
+  sharedInstance = [super init];
+  self.replyHandlers = [NSCache new];
+  self.transfers = [NSMutableDictionary new];
+  self.userInfo = [NSDictionary<NSString*, id> new];
   if ([WCSession isSupported]) {
     WCSession* session = [WCSession defaultSession];
     session.delegate = self;
     self.session = session;
-    self.transfers = [NSMutableDictionary new];
-    self.replyHandlers = [NSMutableDictionary new];
-    self.userInfo = [NSDictionary<NSString*, id> new];
-    [session activateSession];
+    [self.session activateSession];
+
   }
-  return self;
+  return sharedInstance;
+}
+
+- (NSArray<NSString*>*) supportedEvents {
+  return @[
+    EVENT_FILE_TRANSFER_ERROR, EVENT_FILE_TRANSFER_FINISHED,
+    EVENT_RECEIVE_MESSAGE, EVENT_RECEIVE_MESSAGE_DATA,
+    EVENT_WATCH_STATE_CHANGED, EVENT_ACTIVATION_ERROR,
+    EVENT_WATCH_REACHABILITY_CHANGED,
+    EVENT_WATCH_USER_INFO_RECEIVED, EVENT_APPLICATION_CONTEXT_RECEIVED
+  ];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -145,19 +173,28 @@ RCT_EXPORT_METHOD(sendMessage:(NSDictionary *)message
                   replyCallback:(RCTResponseSenderBlock)replyCallback
                   error:(RCTResponseErrorBlock) errorCallback)
 {
+  __block BOOL replied = false;
   [self.session sendMessage:message
-               replyHandler:^(NSDictionary<NSString *,id> * _Nonnull replyMessage) {
-    replyCallback(@[replyMessage]);
-  } errorHandler:^(NSError * _Nonnull error) {
-    errorCallback(error);
-  }];
+                replyHandler:^(NSDictionary<NSString *,id> * _Nonnull replyMessage) {
+      if (!replied) { // prevent Illegal callback invocation
+        replyCallback(@[replyMessage]);
+        replied = true;
+      }
+    }
+    errorHandler:^(NSError * _Nonnull error) {
+      if (!replied) { // prevent Illegal callback invocation
+        errorCallback(error);
+        replied = true;
+      }
+    }
+  ];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 RCT_EXPORT_METHOD(replyToMessageWithId:(NSString*) messageId
                   withMessage:(NSDictionary<NSString *,id> *)message) {
-  void (^replyHandler)(NSDictionary<NSString *,id> * _Nonnull) =  self.replyHandlers[messageId];
+  void (^replyHandler)(NSDictionary<NSString *,id> * _Nonnull) =  [self.replyHandlers objectForKey:messageId];
   replyHandler(message);
 }
 
@@ -180,7 +217,7 @@ didReceiveMessage:(NSDictionary<NSString *,id> *)message
   NSString* messageId = [self uuidString];
   NSMutableDictionary* mutableMessage = [message mutableCopy];
   mutableMessage[@"id"] = messageId;
-  self.replyHandlers[messageId] = replyHandler;
+  [self.replyHandlers setObject:replyHandler forKey:messageId];
   [self dispatchEventWithName:EVENT_RECEIVE_MESSAGE body:mutableMessage];
 }
 
@@ -308,7 +345,8 @@ RCT_EXPORT_METHOD(getApplicationContext:(RCTResponseSenderBlock)callback) {
 - (void)session:(WCSession *)session
 didReceiveApplicationContext:(NSDictionary<NSString *,id> *)applicationContext {
   NSLog(@"sessionDidReceiveApplicationContext %@", applicationContext);
-  [self dispatchEventWithName:EVENT_APPLICATION_CONTEXT_RECEIVED body:self.session.applicationContext];
+  [self.session updateApplicationContext:applicationContext error:nil];
+  [self dispatchEventWithName:EVENT_APPLICATION_CONTEXT_RECEIVED body:applicationContext];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -341,8 +379,8 @@ didReceiveUserInfo:(NSDictionary<NSString *,id> *)userInfo {
 -(void)dispatchEventWithName:(const NSString*) name
                         body:(NSDictionary<NSString *,id> *)body {
   NSLog(@"dispatch %@: %@", name, body);
-  [self.bridge.eventDispatcher sendAppEventWithName:(NSString*)name
-                                               body:body];
+  [self sendEventWithName:name body:body];
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -354,10 +392,6 @@ didReceiveUserInfo:(NSDictionary<NSString *,id> *)userInfo {
   return uuidString;
 }
 
-
-+ (BOOL)requiresMainQueueSetup {
-  return YES;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
