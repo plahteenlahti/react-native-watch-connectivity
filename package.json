@@ -1,6 +1,7 @@
 {
 	"name": "react-native-watch-connectivity",
 	"version": "0.2.0",
+	"description": "React Native Apple Watch connectivity",
 	"main": "./Libraries/RNWatch/RNWatch.ios.build.js",
 	"keywords": "react-native",
 	"repository": {
