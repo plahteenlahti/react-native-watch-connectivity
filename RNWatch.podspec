@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.homepage       = package['repository']['url']
   s.author         = 'Michael Ford <mtford@gmail.com>'
   s.license        = 'BSD'
-  s.source         = { :git => "https://github.com/plahteenlahti/react-native-watch-connectivity", :tag => "v#{s.version}" }
+  s.source         = { :git => "https://github.com/plahteenlahti/react-native-watch-connectivity.git", :tag => "v#{s.version}" }
 
   s.requires_arc   = true
   s.ios.deployment_target = '9.3'
